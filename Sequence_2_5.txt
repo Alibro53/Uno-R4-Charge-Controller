@@ -1,0 +1,90 @@
+Old Setup
+Plug in the cable
+Turn on ignition to power up all devices.
+The VCU sends GND to the charger to power it up
+An Arduino Due checks the voltage from an Isabellenhutte shunt using CAN. If the voltage is within a preset range the Due closes the CP line using a relay (CP Relay) to allow charging to begin. This Arduino Due also sends Voltage, current and power info to the Android head unit over WiFi.
+When the Due sees the voltage above a certain level it turns off the relay which disconnects CP and stops charging.
+A backup safety is provided by the VCU which will power off the charger if it sees an over volt situation.
+
+
+
+New Setup
+Scenario 1 - Charging starts and completes
+
+Plug in the charger cable.
+
+LM393 detects EVSE present from PP and sends GND to the ChargeEnable relay turning it on 
+*** Warning, the LM393 is Positive 12V when charger is not plugged in and will destroy an Arduino. Do not connect the LM393 directly to the Uno R4 without a diode ***
+The charge enable relay sends power the Uno R4 Buck converter using 'A' side of relay and also to a second relay.
+The charge enable relay also sends Gnd to pin 10 of the Uno R4 using B side of the relay.
+The second relay disconnects the throttle 5V to prevent driving off with the cable still plugged in. If I'd had a three pole relay then one would have sufficed. 
+*** WARNING! Disconnecting GND to the accelerator pedal is dangerous so don't do that or the car can accelerate without warning ***
+
+The Uno R4 powered by the ChargeEnable Relay boots and waits for one of two things.
+We push the button to start charging (momentary GND to PIN12) or it starts automagically at 2am (Or whatever preset time).
+
+   The chargenable relay has already sent Gnd to pin 10 to enable charging therefore pin 10 is now low.
+   The CP Relay has not yet triggered so pin 11 is still high
+   The Override button has not been pushed so pin 12 is high
+
+The Uno R4 enables all the relays on the 8 way module in the sequence below and waits for 8 seconds for the CP pin to go low. If it doesn't go low within 8 seconds it will turn off the relays.
+
+Relay 1 sends Power to the Arduino Uno R4 Buck Converter through a diode. This will latch the Arduino on until the last relay is deactivated. **
+Relay 2 sends power to the VCU
+Relay 3 sends power to the Contactors positive feed.
+Relay 4 sends power to the Shunt
+Relay 5 sends power to the Key switch position 1 (Enables several things)
+Relay 6 sends power to the main 12V - 6V Buck Converter module
+Relay 7 sends power to the Charger voltage sense
+Relay 8 sends power to the Charger 12V supply
+
+The main 12V to 6V buck converter (powered by relay 6) powers the Charge control Arduino Due's and coolant pump control Arduino Uno.
+When powered up the charge control Arduino Due immediately closes the CP Relay if the Pack Voltage is within a preset range (Higher that 300V and lower than 398V) 
+The CP relay connects CP of the onboard charger to the EVSE through side 'A'.
+The CP relay also sends Gnd to pin 11 through side B. Pin 11 is now low 
+(this all needs to happen withing 8 seconds of starting the charging sequence).
+
+   The chargenable relay has already sent Gnd to pin 10 to enable charging therefore pin 10 is now low.
+   The CP Relay has now been triggered so pin 11 is now low
+   The Override button may have been pushed but is momentary so regardless pin 12 is still high   
+
+The EVSE can see CP and 220R on PP and the charger is receiving the correct CAN from the original Arduino Due so charging starts.
+
+
+Scenario 1 - Charging completes
+The charge control Arduino Due releases the CP relay when the pack reaches 398V.
+The CP relay opens the CP link between the Onboard charger and the EVSE which stops charging.
+The CP relay also disconnects GND from PIN11 so the Uno R4 turns off all relays in reverse order and when relay 1 turns off it removes latching power from itself. **
+
+The Uno R4 will still receive power from the LM393 as the EVSE is still plugged in and the Charge Enable Relay is still closed but this should be OK as even with the relay and LM393 they should only draw around 100 to 150mA with everything else turned off.
+
+
+
+Scenario 2 - Plug pulled while charging
+Everything as above except:-
+If the Plug is pulled while the car is charging the LM393 removes GND from the ChargeEnable relay and PIN10 of the Uno R4
+The Uno still has power through Relay 1 so remains powered on.
+Because the Uno R4 has lost GND on PIN10 it turns off the relays in reverse order.
+When the last relay turns off it removes latching power from the Uno R4 which powers it off. **
+
+Scenario 3 - The charge time runs out before the battery is charged
+If the time runs out the Uno R4 will turn off the relays in sequence removing the power from all modules stopping the charging.
+
+
+Hardware used
+2 x Arduino Due's. 
+One handles CAN to the charger and has been in the car from the start (I hope to be able to remove this one soon). The second controls the CP relay via a 3V mosfet module. It is monitoring the Pack voltage from the Shunt CAN and at a preset voltage (398V) will open the CP Relay to tell the Uno R4 to stop charging.
+2 x DPST 12V relays
+1 x Voltage Buck Converters (tecnically 2 but the main one is used for other things too).
+1 x Arduino Uno R4 WiFi
+1 x LM393 Voltage divider circuit
+1 x 5V 8 way relay module
+
+
+** The Uno R4 receives it's power from the LM393 but only if the EVSE plug is pushed in. If we don't latch power to the Uno R4 through relay 1 it would loose power when the plug is pulled crashing out the charging in an uncontrolled way. When the car is charging current is flowing and it is bad for the contactors to open while conducting current.
+
+
+The critical thing is that the battery should never be allowed to charge above 400V.
+The charge control Due I use to control this gets it's voltage from the shunt and the VCU which I use as a fail safe gets it's voltage from the Inverter so there is redundancy. 
+When the Due sees a voltage above 398V it turns off the CP relay triggering the Uno R4 to turn off the 8 relays in sequence.
+If the above should fail the VCU will watch for a voltage above 400V and if this happens it will remove Gnd from the charger.
